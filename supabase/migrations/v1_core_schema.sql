@@ -1,0 +1,3 @@
+-- Traces — Core Schema (v1)
+-- See full migration in project docs
+-- Paste contents of supabase_migration.sql here

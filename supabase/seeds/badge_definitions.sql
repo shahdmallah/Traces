@@ -1,0 +1,2 @@
+-- Badge definitions seed
+-- Paste badge inserts from v2 migration here

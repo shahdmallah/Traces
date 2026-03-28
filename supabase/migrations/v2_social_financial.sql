@@ -1,0 +1,3 @@
+-- Traces — Social & Financial Layer (v2)
+-- See full migration in project docs
+-- Paste contents of supabase_migration_v2.sql here

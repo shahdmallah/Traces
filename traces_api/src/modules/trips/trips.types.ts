@@ -1,0 +1,2 @@
+// trips domain types
+// TODO: define interfaces and types for trips
