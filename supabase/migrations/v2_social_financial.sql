@@ -1,11 +1,4 @@
--- ============================================================
--- Rahalla Travel App — Migration v2
--- Run AFTER supabase_migration.sql (v1)
--- ============================================================
 
--- ============================================================
--- NEW ENUMS
--- ============================================================
 
 create type transaction_type as enum ('payment', 'refund', 'commission', 'payout');
 create type transaction_status as enum ('pending', 'completed', 'failed', 'reversed');
@@ -18,11 +11,7 @@ create type auth_provider as enum ('email', 'google', 'apple', 'facebook');
 create type reaction_type as enum ('like', 'love', 'wow', 'helpful');
 create type friendship_status as enum ('pending', 'accepted', 'blocked');
 
--- ============================================================
--- COLUMNS ADDED TO EXISTING TABLES
--- ============================================================
 
--- Users: OAuth support + push tokens + calendar sync
 alter table users
   add column if not exists provider auth_provider not null default 'email',
   add column if not exists provider_id text,
