@@ -1,2 +1,6 @@
-// users domain types
-// TODO: define interfaces and types for users
+export type MeUser = {
+  id: string
+  email: string
+  fullName: string
+  role: string
+}

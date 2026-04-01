@@ -1,37 +1,63 @@
-import { Request, Response, NextFunction } from 'express'
-import { supabase } from '../../config/supabase'
+import { NextFunction, Request, Response } from 'express'
+import jwt from 'jsonwebtoken'
 
 export interface AuthRequest extends Request {
-  user?: { id: string; role: string; email: string }
+  user?: {
+    id: string
+    role: string
+  }
 }
 
-export const requireAuth = async (
+const extractBearer = (authorization: string | undefined): string | null => {
+  if (!authorization || typeof authorization !== 'string') return null
+  const match = /^Bearer\s+(.+)$/i.exec(authorization.trim())
+  const token = match?.[1]?.trim()
+  return token || null
+}
+
+const isJwtPayload = (decoded: unknown): decoded is { id: string; role: string } => {
+  if (decoded === null || typeof decoded !== 'object') return false
+  const o = decoded as Record<string, unknown>
+  return typeof o.id === 'string' && typeof o.role === 'string'
+}
+
+export const authenticate = (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
-  const token = req.headers.authorization?.replace('Bearer ', '')
-  if (!token) return res.status(401).json({ error: 'Unauthorized' })
+): void => {
+  const token = extractBearer(req.headers.authorization)
+  if (!token) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
 
-  const { data: { user }, error } = await supabase.auth.getUser(token)
-  if (error || !user) return res.status(401).json({ error: 'Invalid token' })
+  const secret = process.env.JWT_SECRET
+  if (!secret) {
+    console.error('JWT_SECRET is not configured')
+    res.status(500).json({ error: { message: 'Internal server error' } })
+    return
+  }
 
-  const { data: userData } = await supabase
-    .from('users')
-    .select('id, role, email')
-    .eq('id', user.id)
-    .single()
-
-  if (!userData) return res.status(401).json({ error: 'User not found' })
-
-  req.user = userData
-  next()
+  try {
+    const decoded = jwt.verify(token, secret)
+    if (!isJwtPayload(decoded)) {
+      res.status(401).json({ error: 'Invalid or expired token' })
+      return
+    }
+    req.user = { id: decoded.id, role: decoded.role }
+    next()
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' })
+  }
 }
 
-export const requireRole = (roles: string[]) =>
-  (req: AuthRequest, res: Response, next: NextFunction) => {
+export const requireRole = (roles: string[]) => {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Forbidden' })
+      res.status(403).json({ error: 'Forbidden' })
+      return
     }
     next()
   }
+}
