@@ -13,3 +13,20 @@ export interface AuthUserResponse {
   fullName: string
   role: SignUpRole
 }
+
+export interface LoginInput {
+  email: string
+  password: string
+}
+
+export interface PublicUser {
+  id: string
+  email: string
+  fullName: string
+  role: string
+}
+
+export interface LoginResponse {
+  user: PublicUser
+  token: string
+}

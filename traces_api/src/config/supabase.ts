@@ -30,3 +30,10 @@ if (!serviceRole && process.env.NODE_ENV === 'production') {
 export const supabase = createClient(url, key, {
   auth: { autoRefreshToken: false, persistSession: false },
 })
+
+/** Anon/publishable client — used for password grant (e.g. legacy logins without password_hash). */
+export const supabaseAnon = anonOrPublishable
+  ? createClient(url, anonOrPublishable, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  : null

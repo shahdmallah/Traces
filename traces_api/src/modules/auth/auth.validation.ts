@@ -23,3 +23,12 @@ export const SignUpSchema = z.object({
     .enum(['traveler', 'organizer'])
     .default('traveler'),
 })
+
+export const LoginSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email('A valid email is required'),
+  password: z.string().min(1, 'Password is required'),
+})
