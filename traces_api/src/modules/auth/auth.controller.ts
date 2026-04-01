@@ -8,7 +8,7 @@ export const signUp = async (req: Request, res: Response, next: NextFunction) =>
   try {
     const parsed = SignUpSchema.safeParse(req.body)
     if (!parsed.success) {
-      return next(new AppError(400, parsed.error.issues[0]?.message ?? 'Invalid signup payload'))
+      return next(new AppError(422, parsed.error.issues[0]?.message ?? 'Invalid signup payload'))
     }
 
     const user = await authService.signUp(parsed.data)
