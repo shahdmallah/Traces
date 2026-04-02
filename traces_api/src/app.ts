@@ -30,11 +30,12 @@ app.use(helmet())
 app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') ?? '*' }))
 app.use(morgan('dev'))
 app.use(express.json({ limit: '10mb' }))
+app.use(express.urlencoded({ extended: true }))
 
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 })
 app.use('/api/', limiter)
 
-// Routes
+// Routes are registered only after body-parsing middleware.
 app.use('/api/auth',          authRouter)
 app.use('/api/users',         usersRouter)
 app.use('/api/trips',         tripsRouter)
