@@ -20,8 +20,14 @@ export const SignUpSchema = z.object({
     .min(2, 'Full name must be at least 2 characters')
     .max(120, 'Full name is too long'),
   role: z
-    .enum(['traveler', 'organizer'])
-    .default('traveler'),
+    .string({
+      required_error: 'Role is required',
+      invalid_type_error: 'Invalid role',
+    })
+    .trim()
+    .refine((value) => value === 'traveler' || value === 'organizer', {
+      message: 'Invalid role',
+    }),
 })
 
 export const LoginSchema = z.object({
