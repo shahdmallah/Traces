@@ -170,6 +170,94 @@ export const listPublishedTrips = async (): Promise<TripRow[]> => {
   return (data ?? []) as TripRow[]
 }
 
+export const getTripById = async (id: string): Promise<TripRow | null> => {
+  const { data, error } = await supabase
+    .from('trips')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error) {
+    console.error('Trip lookup failed', error)
+    throw new AppError(500, 'Failed to fetch trip')
+  }
+
+  if (!data || (data as TripRow).status === 'deleted') {
+    return null
+  }
+
+  return data as TripRow
+}
+
+type TripDetail = {
+  trip: TripRow
+  organizer: {
+    full_name: string
+    avatar_url?: string | null
+    bio?: string | null
+  } | null
+  destination: any | null
+}
+
+export const getTripByIdWithRelations = async (id: string): Promise<TripDetail | null> => {
+  const trip = await getTripById(id)
+  if (!trip) return null
+
+  let organizer = null
+  let destination = null
+
+  const { data: organizerProfile, error: organizerError } = await supabase
+    .from('organizer_profiles')
+    .select('user_id,bio')
+    .eq('id', trip.organizer_id)
+    .maybeSingle()
+
+  if (organizerError) {
+    console.error('Organizer profile lookup failed', organizerError)
+    throw new AppError(500, 'Failed to fetch organizer info')
+  }
+
+  if (organizerProfile) {
+    const { data: organizerUser, error: organizerUserError } = await supabase
+      .from('users')
+      .select('full_name,avatar_url')
+      .eq('id', organizerProfile.user_id)
+      .maybeSingle()
+
+    if (organizerUserError) {
+      console.error('Organizer user lookup failed', organizerUserError)
+      throw new AppError(500, 'Failed to fetch organizer info')
+    }
+
+    organizer = {
+      full_name: organizerUser?.full_name ?? '',
+      avatar_url: organizerUser?.avatar_url ?? null,
+      bio: organizerProfile.bio ?? null,
+    }
+  }
+
+  if (trip.destination_id) {
+    const { data: destinationData, error: destinationError } = await supabase
+      .from('destinations')
+      .select('*')
+      .eq('id', trip.destination_id)
+      .maybeSingle()
+
+    if (destinationError) {
+      console.error('Destination lookup failed', destinationError)
+      throw new AppError(500, 'Failed to fetch destination info')
+    }
+
+    destination = destinationData ?? null
+  }
+
+  return {
+    trip,
+    organizer,
+    destination,
+  }
+}
+
 export const listMyTrips = async (userId: string): Promise<TripRow[]> => {
   const organizerProfileId = await resolveOrganizerProfileId(userId)
 

@@ -36,6 +36,24 @@ export const listPublished = async (_req: AuthRequest, res: Response, next: Next
   }
 }
 
+export const getById = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id
+    if (!id) {
+      return next(new AppError(400, 'Trip ID is required'))
+    }
+
+    const detail = await tripsService.getTripByIdWithRelations(id)
+    if (!detail) {
+      return next(new AppError(404, 'Trip not found'))
+    }
+
+    return ok(res, detail)
+  } catch (error) {
+    return next(error as Error)
+  }
+}
+
 export const listMyTrips = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const userId = req.user?.id
