@@ -17,8 +17,8 @@ const itineraryItemSchema = z.object({
 
 const meetingPointSchema = z.object({
   address: z.string().trim().min(1, 'Meeting point address is required'),
-  lat: z.number(),
-  lng: z.number(),
+  latitude: z.number(),
+  longitude: z.number(),
   notes: z.string().trim().min(1).optional(),
 }).strip()
 
