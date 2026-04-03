@@ -98,7 +98,7 @@ const isLocationForeignKeyViolation = (error: { code?: string; message?: string 
 
 const buildCreateTripPayload = (input: CreateTripInput, organizerId: string) => ({
   organizer_id: organizerId,
-  destination_id: input.location_id ?? null,
+  destination_id: input.location_id ?? input.destination_id ?? null,
   title: input.title,
   description: input.description ?? null,
   start_date: input.start_date,
@@ -134,8 +134,9 @@ const buildCreateTripPayload = (input: CreateTripInput, organizerId: string) => 
 export const createTrip = async (userId: string, input: CreateTripInput): Promise<TripRow> => {
   const organizerProfileId = await resolveOrganizerProfileId(userId)
 
-  if (input.location_id) {
-    await ensureDestinationExists(input.location_id)
+  const destinationId = input.location_id ?? input.destination_id
+  if (destinationId) {
+    await ensureDestinationExists(destinationId)
   }
 
   const { data, error } = await supabase
@@ -276,7 +277,7 @@ export const updateTrip = async (
 
   for (const key of fields) {
     if (Object.prototype.hasOwnProperty.call(updates, key)) {
-      ;(allowedUpdates as any)[key] = (updates as any)[key]
+      (allowedUpdates as Record<string, unknown>)[key] = (updates as Record<string, unknown>)[key]
     }
   }
 
@@ -380,7 +381,7 @@ type TripDetail = {
     avatar_url?: string | null
     bio?: string | null
   } | null
-  destination: any | null
+  destination: Record<string, unknown> | null
 }
 
 export const getTripByIdWithRelations = async (id: string): Promise<TripDetail | null> => {
@@ -457,4 +458,37 @@ export const listMyTrips = async (userId: string): Promise<TripRow[]> => {
   }
 
   return (data ?? []) as TripRow[]
+}
+
+export const incrementParticipants = async (tripId: string): Promise<void> => {
+  const { error } = await supabase.rpc('increment_trip_participants', { trip_id: tripId })
+
+  if (error) {
+    console.error('Failed to increment trip participants', error)
+    throw new AppError(500, 'Failed to update trip participants')
+  }
+}
+
+export const decrementParticipants = async (tripId: string): Promise<void> => {
+  const { error } = await supabase.rpc('decrement_trip_participants', { trip_id: tripId })
+
+  if (error) {
+    console.error('Failed to decrement trip participants', error)
+    throw new AppError(500, 'Failed to update trip participants')
+  }
+}
+
+export const getTripAvailability = async (tripId: string): Promise<{ available_spots: number; max_participants: number; current_participants: number }> => {
+  const trip = await getTripById(tripId)
+  if (!trip) {
+    throw new AppError(404, 'Trip not found')
+  }
+
+  const availableSpots = Math.max(0, trip.max_participants - trip.current_participants)
+
+  return {
+    available_spots: availableSpots,
+    max_participants: trip.max_participants,
+    current_participants: trip.current_participants,
+  }
 }
