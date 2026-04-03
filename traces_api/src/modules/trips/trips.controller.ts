@@ -4,7 +4,7 @@ import { AuthRequest } from '../../shared/middleware/auth.middleware'
 import { AppError, createValidationError } from '../../shared/middleware/error.middleware'
 import { created, ok } from '../../shared/utils/response'
 import * as tripsService from './trips.service'
-import { CreateTripSchema } from './trips.validation'
+import { CreateTripSchema, UpdateTripSchema } from './trips.validation'
 
 export const create = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -31,6 +31,70 @@ export const listPublished = async (_req: AuthRequest, res: Response, next: Next
   try {
     const trips = await tripsService.listPublishedTrips()
     return ok(res, trips)
+  } catch (error) {
+    return next(error as Error)
+  }
+}
+
+export const update = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user?.id
+    const userRole = req.user?.role
+    if (!userId || !userRole) {
+      return next(new AppError(401, 'Unauthorized'))
+    }
+
+    const { id } = req.params
+    if (!id) {
+      return next(new AppError(400, 'Trip ID is required'))
+    }
+
+    const parsed = UpdateTripSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return next(createValidationError(parsed.error))
+    }
+
+    const updatedTrip = await tripsService.updateTrip(userId, userRole, id, parsed.data)
+    return ok(res, updatedTrip)
+  } catch (error) {
+    return next(error as Error)
+  }
+}
+
+export const remove = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user?.id
+    const userRole = req.user?.role
+    if (!userId || !userRole) {
+      return next(new AppError(401, 'Unauthorized'))
+    }
+
+    const { id } = req.params
+    if (!id) {
+      return next(new AppError(400, 'Trip ID is required'))
+    }
+
+    await tripsService.softDeleteTrip(userId, userRole, id)
+    return ok(res, { message: 'Trip deleted successfully' })
+  } catch (error) {
+    return next(error as Error)
+  }
+}
+
+export const publish = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user?.id
+    if (!userId) {
+      return next(new AppError(401, 'Unauthorized'))
+    }
+
+    const { id } = req.params
+    if (!id) {
+      return next(new AppError(400, 'Trip ID is required'))
+    }
+
+    const updatedTrip = await tripsService.publishTrip(userId, id)
+    return ok(res, updatedTrip)
   } catch (error) {
     return next(error as Error)
   }

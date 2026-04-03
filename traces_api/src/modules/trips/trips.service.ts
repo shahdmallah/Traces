@@ -22,7 +22,9 @@ type TripRow = {
   current_participants: number
   price: number | string
   deposit_amount: number | string | null
-  status: 'draft' | 'active' | 'cancelled' | 'completed'
+  status: 'draft' | 'active' | 'cancelled' | 'completed' | 'deleted'
+  published_at?: string | null
+  deleted_at?: string | null
   cancellation_policy: 'flexible' | 'moderate' | 'strict'
   instant_booking: boolean
   is_featured: boolean
@@ -188,6 +190,188 @@ export const getTripById = async (id: string): Promise<TripRow | null> => {
 
   return data as TripRow
 }
+
+const isUserOrganizerOfTrip = async (userId: string, trip: TripRow): Promise<boolean> => {
+  if (!trip) return false
+  const organizerProfileId = await resolveOrganizerProfileId(userId)
+  return trip.organizer_id === organizerProfileId
+}
+
+export const updateTrip = async (
+  userId: string,
+  userRole: string,
+  tripId: string,
+  updates: Partial<{
+    title: string
+    description: string | null
+    start_date: string
+    end_date: string
+    max_participants: number
+    price: number | string
+    deposit_amount: number | string | null
+    cancellation_policy: 'flexible' | 'moderate' | 'strict'
+    instant_booking: boolean
+    is_private: boolean
+    min_age: number | null
+    max_age: number | null
+    fitness_level: string | null
+    required_skills: string[] | null
+    itinerary: unknown
+    meeting_point: unknown
+    included_items: string[] | null
+    excluded_items: string[] | null
+    meal_plan: string | null
+    packing_recommendations: string[] | null
+    group_discounts: unknown
+    early_bird_discount: unknown
+    custom_questions: unknown
+    cover_image_url: string | null
+    media_urls: unknown
+    route_coordinates: unknown
+  }>,
+): Promise<TripRow> => {
+  const trip = await getTripById(tripId)
+  if (!trip) {
+    throw new AppError(404, 'Trip not found')
+  }
+
+  const isOrganizer = await isUserOrganizerOfTrip(userId, trip)
+  if (!isOrganizer && userRole !== 'admin') {
+    throw new AppError(403, 'Forbidden')
+  }
+
+  if (trip.status === 'active') {
+    throw new AppError(400, "Published trips cannot be edited except for cancellation")
+  }
+
+  const allowedUpdates: Record<string, unknown> = {}
+  const fields = [
+    'title',
+    'description',
+    'start_date',
+    'end_date',
+    'max_participants',
+    'price',
+    'deposit_amount',
+    'cancellation_policy',
+    'instant_booking',
+    'is_private',
+    'min_age',
+    'max_age',
+    'fitness_level',
+    'required_skills',
+    'itinerary',
+    'meeting_point',
+    'included_items',
+    'excluded_items',
+    'meal_plan',
+    'packing_recommendations',
+    'group_discounts',
+    'early_bird_discount',
+    'custom_questions',
+    'cover_image_url',
+    'media_urls',
+    'route_coordinates',
+  ]
+
+  for (const key of fields) {
+    if (Object.prototype.hasOwnProperty.call(updates, key)) {
+      ;(allowedUpdates as any)[key] = (updates as any)[key]
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('trips')
+    .update({
+      ...allowedUpdates,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', tripId)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Failed to update trip', error)
+    throw new AppError(500, 'Failed to update trip')
+  }
+
+  return data as TripRow
+}
+
+export const softDeleteTrip = async (userId: string, userRole: string, tripId: string): Promise<void> => {
+  const trip = await getTripById(tripId)
+  if (!trip) {
+    throw new AppError(404, 'Trip not found')
+  }
+
+  const isOrganizer = await isUserOrganizerOfTrip(userId, trip)
+  if (!isOrganizer && userRole !== 'admin') {
+    throw new AppError(403, 'Forbidden')
+  }
+
+  const { error } = await supabase
+    .from('trips')
+    .update({
+      status: 'deleted',
+      deleted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', tripId)
+
+  if (error) {
+    console.error('Failed to delete trip', error)
+    throw new AppError(500, 'Failed to delete trip')
+  }
+}
+
+export const publishTrip = async (userId: string, tripId: string): Promise<TripRow> => {
+  const trip = await getTripById(tripId)
+  if (!trip) {
+    throw new AppError(404, 'Trip not found')
+  }
+
+  const isOrganizer = await isUserOrganizerOfTrip(userId, trip)
+  if (!isOrganizer) {
+    throw new AppError(403, 'Only organizer can publish this trip')
+  }
+
+  if (trip.status !== 'draft') {
+    throw new AppError(400, 'Only draft trips can be published')
+  }
+
+  const errors: string[] = []
+  if (!trip.title || trip.title.trim().length === 0) errors.push('Title is required')
+  if (!trip.description || trip.description.trim().length === 0) errors.push('Description is required')
+  if (!trip.start_date || !trip.end_date || new Date(trip.start_date) >= new Date(trip.end_date)) {
+    errors.push('Start date must be before end date')
+  }
+  if (trip.max_participants < 1) errors.push('Max participants must be at least 1')
+  const priceValue = Number(trip.price)
+  if (Number.isNaN(priceValue) || priceValue <= 0) errors.push('Price must be greater than 0')
+
+  if (errors.length > 0) {
+    throw new AppError(400, 'Trip is not ready for publishing', errors.map((message) => ({ field: '', message })))
+  }
+
+  const { data, error } = await supabase
+    .from('trips')
+    .update({
+      status: 'active',
+      published_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', tripId)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('Failed to publish trip', error)
+    throw new AppError(500, 'Failed to publish trip')
+  }
+
+  return data as TripRow
+}
+
 
 type TripDetail = {
   trip: TripRow
