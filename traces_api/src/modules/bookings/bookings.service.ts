@@ -4,77 +4,136 @@ import { AppError } from '../../shared/middleware/error.middleware'
 import { CreateBookingInput, Booking, BookingWithTrip, BookingWithDetails, BookingListResponse, TripAvailability } from './bookings.types'
 
 export const createBooking = async (travelerId: string, tripId: string, input: CreateBookingInput): Promise<Booking> => {
-  // Check trip exists and is active
-  const { data: trip, error: tripError } = await supabase
-    .from('trips')
-    .select('id, title, start_date, max_participants, current_participants, price, status, organizer_id')
-    .eq('id', tripId)
-    .single()
+  try {
+    console.info('[booking] createBooking start', { travelerId, tripId, participant_count: input.participant_count })
 
-  if (tripError || !trip) {
-    throw new AppError(404, 'Trip not found')
-  }
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('id, title, start_date, max_participants, current_participants, price, status, organizer_id')
+      .eq('id', tripId)
+      .single()
 
-  if (trip.status !== 'active') {
-    throw new AppError(400, 'Trip is not available for booking')
-  }
+    if (tripError || !trip) {
+      console.error('[booking] trip lookup failed', { tripId, tripError })
+      throw new AppError(404, 'Trip not found')
+    }
 
-  const now = new Date()
-  const tripStart = new Date(trip.start_date)
-  if (tripStart <= now) {
-    throw new AppError(400, 'Cannot book trips that have already started')
-  }
+    console.info('[booking] trip details', {
+      tripId,
+      status: trip.status,
+      start_date: trip.start_date,
+      current_participants: trip.current_participants,
+      max_participants: trip.max_participants,
+      organizer_id: trip.organizer_id
+    })
 
-  // Check if user is the organizer
-  const { data: organizerProfile } = await supabase
-    .from('organizer_profiles')
-    .select('user_id')
-    .eq('id', trip.organizer_id)
-    .single()
+    if (trip.status !== 'active') {
+      throw new AppError(400, 'Trip is not available for booking')
+    }
 
-  if (organizerProfile?.user_id === travelerId) {
-    throw new AppError(403, 'Cannot book your own trip')
-  }
+    const now = new Date()
+    const tripStart = new Date(trip.start_date)
+    if (tripStart <= now) {
+      throw new AppError(400, 'Cannot book trips that have already started')
+    }
 
-  // Check existing booking
-  const { data: existingBooking } = await supabase
-    .from('bookings')
-    .select('id')
-    .eq('trip_id', tripId)
-    .eq('traveler_id', travelerId)
-    .maybeSingle()
+    const { data: traveler, error: travelerError } = await supabase
+      .from('users')
+      .select('id, is_suspended')
+      .eq('id', travelerId)
+      .single()
 
-  if (existingBooking) {
-    throw new AppError(409, 'You have already booked this trip')
-  }
+    if (travelerError) {
+      console.error('[booking] traveler lookup failed', { travelerId, travelerError })
+      throw new AppError(500, 'Traveler lookup failed')
+    }
 
-  const availableSpots = trip.max_participants - trip.current_participants
-  if (availableSpots < input.participant_count) {
-    throw new AppError(400, 'Not enough spots available')
-  }
+    if (!traveler) {
+      throw new AppError(404, 'Traveler not found')
+    }
 
-  const totalAmount = trip.price * input.participant_count
-  const qrCode = crypto.randomBytes(16).toString('hex')
+    if (traveler.is_suspended) {
+      throw new AppError(403, 'Traveler account is suspended')
+    }
 
-  // Use transaction to prevent race conditions
-  const { data: booking, error: bookingError } = await supabase.rpc('create_booking_transaction', {
-    p_traveler_id: travelerId,
-    p_trip_id: tripId,
-    p_participant_count: input.participant_count,
-    p_total_amount: totalAmount,
-    p_qr_code: qrCode,
-    p_special_requests: input.special_requests || null
-  })
+    const { data: organizerProfile, error: organizerError } = await supabase
+      .from('organizer_profiles')
+      .select('user_id')
+      .eq('id', trip.organizer_id)
+      .single()
 
-  if (bookingError) {
-    console.error('Booking creation failed', bookingError)
-    if (bookingError.message.includes('not enough spots')) {
+    if (organizerError) {
+      console.error('[booking] organizer profile lookup failed', { tripId, organizerError })
+      throw new AppError(500, 'Failed to verify trip organizer')
+    }
+
+    if (organizerProfile?.user_id === travelerId) {
+      throw new AppError(403, 'Cannot book your own trip')
+    }
+
+    const { data: existingBooking, error: existingBookingError } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('trip_id', tripId)
+      .eq('traveler_id', travelerId)
+      .maybeSingle()
+
+    if (existingBookingError) {
+      console.error('[booking] existing booking lookup failed', { tripId, travelerId, existingBookingError })
+      throw new AppError(500, 'Failed to verify existing booking')
+    }
+
+    if (existingBooking) {
+      throw new AppError(409, 'You have already booked this trip')
+    }
+
+    const availableSpots = trip.max_participants - trip.current_participants
+    console.info('[booking] availability', { tripId, availableSpots })
+
+    if (availableSpots < input.participant_count) {
       throw new AppError(400, 'Not enough spots available')
     }
-    throw new AppError(500, 'Failed to create booking')
-  }
 
-  return booking as Booking
+    const totalAmount = trip.price * input.participant_count
+    const qrCode = crypto.randomBytes(16).toString('hex')
+
+    const { data: booking, error: bookingError } = await supabase.rpc('create_booking_transaction', {
+      p_traveler_id: travelerId,
+      p_trip_id: tripId,
+      p_participant_count: input.participant_count,
+      p_total_amount: totalAmount,
+      p_qr_code: qrCode,
+      p_special_requests: input.special_requests || null
+    })
+
+    if (bookingError) {
+      console.error('[booking] create_booking_transaction failed', {
+        tripId,
+        travelerId,
+        input,
+        bookingError
+      })
+
+      if (bookingError.message && bookingError.message.toLowerCase().includes('not enough spots')) {
+        throw new AppError(400, 'Not enough spots available')
+      }
+
+      // If this is a unique constraint issue or other known issue, map accordingly
+      if (bookingError.code === '23505' || (bookingError.message && bookingError.message.toLowerCase().includes('unique'))) {
+        throw new AppError(409, 'You have already booked this trip')
+      }
+
+      throw new AppError(500, `Booking creation failed: ${bookingError.message || 'Database error'}`)
+    }
+
+    return booking as Booking
+  } catch (error) {
+    console.error('[booking] createBooking failed', { tripId, travelerId, error })
+    if (error instanceof AppError) {
+      throw error
+    }
+    throw new AppError(500, 'Failed to create booking due to internal server error')
+  }
 }
 
 export const getTravelerBookings = async (travelerId: string, page: number = 1, limit: number = 10): Promise<BookingListResponse> => {

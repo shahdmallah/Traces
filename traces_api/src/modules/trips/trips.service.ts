@@ -98,7 +98,7 @@ const isLocationForeignKeyViolation = (error: { code?: string; message?: string 
 
 const buildCreateTripPayload = (input: CreateTripInput, organizerId: string) => ({
   organizer_id: organizerId,
-  destination_id: input.location_id ?? null,
+  destination_id: input.location_id ?? input.destination_id ?? null,
   title: input.title,
   description: input.description ?? null,
   start_date: input.start_date,
@@ -134,8 +134,9 @@ const buildCreateTripPayload = (input: CreateTripInput, organizerId: string) => 
 export const createTrip = async (userId: string, input: CreateTripInput): Promise<TripRow> => {
   const organizerProfileId = await resolveOrganizerProfileId(userId)
 
-  if (input.location_id) {
-    await ensureDestinationExists(input.location_id)
+  const destinationId = input.location_id ?? input.destination_id
+  if (destinationId) {
+    await ensureDestinationExists(destinationId)
   }
 
   const { data, error } = await supabase

@@ -45,11 +45,13 @@ const routeCoordinateSchema = z.object({
 }).strip()
 
 const baseTripSchema = z.object({
+  // destination_id is nullable in DB and can be provided as location_id for backwards compatibility.
+  destination_id: z.string().uuid('Destination id must be a valid UUID').nullable().optional(),
   location_id: z.string().uuid('Location id must be a valid UUID').nullable().optional(),
 
   title: z.string().trim().min(1, 'Title is required').max(255),
 
-  description: z.string().trim().min(1, 'Description cannot be empty').nullable().optional(),
+  description: z.string().trim().min(1, 'Description is required and cannot be empty'),
 
   start_date: z.string().refine((val) => !isNaN(Date.parse(val)), {
     message: 'Start date must be a valid date',
@@ -65,10 +67,10 @@ const baseTripSchema = z.object({
 
   deposit_amount: z.number().nonnegative('Deposit amount cannot be negative').nullable().optional(),
 
-  cancellation_policy: z.enum(['flexible', 'moderate', 'strict']).optional(),
-  instant_booking: z.boolean().optional(),
-  is_featured: z.boolean().optional(),
-  is_private: z.boolean().optional(),
+  cancellation_policy: z.enum(['flexible', 'moderate', 'strict']).default('moderate'),
+  instant_booking: z.boolean().default(false),
+  is_featured: z.boolean().default(false),
+  is_private: z.boolean().default(false),
 
   is_recurring: z.boolean().optional(),
 
@@ -81,28 +83,28 @@ const baseTripSchema = z.object({
 
   required_skills: z.array(z.string().trim().min(1)).optional(),
 
-  itinerary: z.array(itineraryItemSchema).optional(),
+  itinerary: z.array(itineraryItemSchema).default([]),
 
   meeting_point: meetingPointSchema.nullable().optional(),
 
-  included_items: z.array(z.string().trim().min(1)).optional(),
-  excluded_items: z.array(z.string().trim().min(1)).optional(),
+  included_items: z.array(z.string().trim().min(1)).default([]),
+  excluded_items: z.array(z.string().trim().min(1)).default([]),
 
   meal_plan: z.string().trim().min(1).nullable().optional(),
 
-  packing_recommendations: z.array(z.string().trim().min(1)).optional(),
+  packing_recommendations: z.array(z.string().trim().min(1)).default([]),
 
-  group_discounts: z.array(groupDiscountSchema).optional(),
+  group_discounts: z.array(groupDiscountSchema).default([]),
 
   early_bird_discount: earlyBirdDiscountSchema.nullable().optional(),
 
-  custom_questions: z.array(customQuestionSchema).optional(),
+  custom_questions: z.array(customQuestionSchema).default([]),
 
   cover_image_url: z.string().url().nullable().optional(),
 
-  media_urls: z.array(z.string().url()).optional(),
+  media_urls: z.array(z.string().url()).default([]),
 
-  route_coordinates: z.array(routeCoordinateSchema).optional(),
+  route_coordinates: z.array(routeCoordinateSchema).default([]),
 })
 .strip()
 

@@ -4,7 +4,11 @@ import * as controller from './bookings.controller'
 
 export const bookingsRouter = Router()
 
-// All routes require authentication
+// GET /api/bookings/trips/:tripId/availability - Get trip availability (public)
+// Must be before authenticate() so public users can check availability without login.
+bookingsRouter.get('/trips/:tripId/availability', controller.getTripAvailability)
+
+// All other routes require authentication
 bookingsRouter.use(authenticate)
 
 // POST /api/bookings/:tripId - Create a new booking (travelers only)
@@ -24,6 +28,3 @@ bookingsRouter.patch('/:id/cancel', controller.cancelBooking)
 
 // PATCH /api/bookings/:id/confirm - Confirm a booking (organizers only)
 bookingsRouter.patch('/:id/confirm', requireRole(['organizer']), controller.confirmBooking)
-
-// GET /api/bookings/trips/:tripId/availability - Get trip availability (public)
-bookingsRouter.get('/trips/:tripId/availability', controller.getTripAvailability)
