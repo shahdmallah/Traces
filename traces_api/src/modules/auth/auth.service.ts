@@ -139,6 +139,35 @@ export const signUp = async (input: SignUpInput): Promise<AuthUserResponse> => {
     throw new AppError(500, 'Failed to create user profile')
   }
 
+  if (role === 'organizer') {
+    const { error: organizerInsertError } = await supabase
+      .from('organizer_profiles')
+      .insert({
+        user_id: authUserId,
+        tier: 'new',
+        commission_rate: 10.0,
+      })
+
+    if (organizerInsertError) {
+      console.error('Failed to create organizer profile', organizerInsertError)
+      try {
+        const { error: rollbackError } = await supabase.auth.admin.deleteUser(authUserId)
+        if (rollbackError) {
+          console.error('Failed to rollback auth user after organizer profile insert error', {
+            authUserId,
+            rollbackError,
+          })
+        }
+      } catch (rollbackException) {
+        console.error('Unexpected rollback exception while deleting auth user', {
+          authUserId,
+          rollbackException,
+        })
+      }
+      throw new AppError(500, 'Failed to create organizer profile')
+    }
+  }
+
   return {
     id: authUserId,
     email: authEmail,

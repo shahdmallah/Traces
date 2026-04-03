@@ -44,7 +44,7 @@ const routeCoordinateSchema = z.object({
   lng: z.number(),
 }).strip()
 
-export const CreateTripSchema = z.object({
+const baseTripSchema = z.object({
   location_id: z.string().uuid('Location id must be a valid UUID').nullable().optional(),
 
   title: z.string().trim().min(1, 'Title is required').max(255),
@@ -105,7 +105,8 @@ export const CreateTripSchema = z.object({
   route_coordinates: z.array(routeCoordinateSchema).optional(),
 })
 .strip()
-.superRefine((data, ctx) => {
+
+export const CreateTripSchema = baseTripSchema.superRefine((data, ctx) => {
   const start = new Date(data.start_date)
   const end = new Date(data.end_date)
 
@@ -166,3 +167,43 @@ export const CreateTripSchema = z.object({
 })
 
 export type CreateTripInput = z.infer<typeof CreateTripSchema>
+
+export const UpdateTripSchema = baseTripSchema.partial().superRefine((data, ctx) => {
+  if (data.start_date && data.end_date) {
+    const start = new Date(data.start_date)
+    const end = new Date(data.end_date)
+    if (start >= end) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'End date must be after start date',
+        path: ['end_date'],
+      })
+    }
+  }
+
+  if (data.max_participants != null && data.max_participants < 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Max participants must be at least 1',
+      path: ['max_participants'],
+    })
+  }
+
+  if (data.price != null && data.price <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Price must be greater than 0',
+      path: ['price'],
+    })
+  }
+
+  if (data.deposit_amount != null && data.price != null && data.deposit_amount > data.price) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Deposit amount cannot exceed price',
+      path: ['deposit_amount'],
+    })
+  }
+})
+
+export type UpdateTripInput = z.infer<typeof UpdateTripSchema>

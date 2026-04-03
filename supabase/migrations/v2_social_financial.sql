@@ -39,6 +39,13 @@ alter table trips
   add column if not exists ai_price_updated_at timestamptz,
   add column if not exists smart_match_config jsonb default '{}'; -- criteria weights for AI matching
 
+-- Trips: soft delete + publish metadata
+alter type trip_status add value if not exists 'deleted';
+
+alter table trips
+  add column if not exists published_at timestamptz,
+  add column if not exists deleted_at timestamptz;
+
 -- ============================================================
 -- FINANCIAL: TRANSACTIONS
 -- ============================================================
