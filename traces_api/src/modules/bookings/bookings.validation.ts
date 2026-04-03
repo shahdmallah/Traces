@@ -1,5 +1,8 @@
-// TODO: define Zod schemas for bookings request validation
-// Example:
-// export const CreateBookingsSchema = z.object({
-//   name: z.string().min(1).max(255),
-// })
+import { z } from 'zod'
+
+export const CreateBookingSchema = z.object({
+  participant_count: z.number().int().min(1).max(20),
+  special_requests: z.string().max(500).optional(),
+})
+
+export type CreateBookingInput = z.infer<typeof CreateBookingSchema>
