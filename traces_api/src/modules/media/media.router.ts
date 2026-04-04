@@ -1,12 +1,16 @@
 import { Router } from 'express'
-// import * as controller from './media.controller'
+import multer from 'multer'
+import { authenticate } from '../../shared/middleware/auth.middleware'
+import * as controller from './media.controller'
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
 
 export const mediaRouter = Router()
 
-// TODO: define media routes
-// Example:
-// mediaRouter.get('/',     requireAuth, controller.list)
-// mediaRouter.get('/:id', requireAuth, controller.getById)
-// mediaRouter.post('/',   requireAuth, controller.create)
-// mediaRouter.put('/:id', requireAuth, controller.update)
-// mediaRouter.delete('/:id', requireAuth, controller.remove)
+mediaRouter.get('/nearby', controller.listNearby)
+mediaRouter.get('/users/:userId/media', controller.listUserMedia)
+mediaRouter.get('/:id', controller.getById)
+mediaRouter.post('/', authenticate, upload.single('file'), controller.create)
+mediaRouter.patch('/:id', authenticate, controller.update)
+mediaRouter.delete('/:id', authenticate, controller.remove)
+mediaRouter.post('/:id/tag', authenticate, controller.tag)
