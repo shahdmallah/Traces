@@ -29,6 +29,7 @@ const MAX_VIDEO_SIZE = 50 * 1024 * 1024
 const STORAGE_BUCKET = 'media'
 const STORAGE_DATA_FOLDER = 'media'
 const THUMBNAIL_FOLDER = `${STORAGE_DATA_FOLDER}/thumbnails`
+const ALLOWED_FILE_EXTENSIONS = 'jpg, jpeg, png, gif, webp, mp4, mov'
 
 type MediaRow = MediaRecord & {
   uploader?: {
@@ -51,23 +52,85 @@ const getUploadKey = (type: MediaType, originalName: string) => {
   return `${STORAGE_DATA_FOLDER}/${type === 'photo' ? 'photos' : 'videos'}/${crypto.randomUUID()}${extension}`
 }
 
-const uploadToStorage = async (key: string, buffer: Buffer, contentType: string): Promise<string> => {
-  const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(key, buffer, {
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
+    return (error as { message: string }).message
+  }
+  return String(error)
+}
+
+const isBucketNotFoundError = (error: unknown): boolean => {
+  const message = getErrorMessage(error).toLowerCase()
+  return message.includes('bucket not found') || message.includes('not found')
+}
+
+type StorageBucketStatus = {
+  exists: boolean
+  isPublic: boolean | null
+  fileSizeLimit: number | string | null
+  allowedMimeTypes: string[] | null
+}
+
+const getStorageBucketStatus = async (): Promise<StorageBucketStatus> => {
+  console.log('[media] Initializing Supabase Storage client')
+  console.log(`[media] Checking storage bucket existence: ${STORAGE_BUCKET}`)
+
+  const { data, error } = await supabase.storage.getBucket(STORAGE_BUCKET)
+  if (error) {
+    console.error('[media] Bucket existence check failed', { bucket: STORAGE_BUCKET, error })
+    if (isBucketNotFoundError(error)) {
+      throw new AppError(500, `Storage bucket '${STORAGE_BUCKET}' not found. Please create it in Supabase.`)
+    }
+    throw new AppError(500, `Supabase Storage error: ${getErrorMessage(error)}`)
+  }
+
+  console.log('[media] Bucket existence check result', {
+    bucket: STORAGE_BUCKET,
+    public: data.public,
+    fileSizeLimit: data.file_size_limit ?? null,
+    allowedMimeTypes: data.allowed_mime_types ?? null,
+  })
+
+  return {
+    exists: true,
+    isPublic: data.public ?? null,
+    fileSizeLimit: data.file_size_limit ?? null,
+    allowedMimeTypes: data.allowed_mime_types ?? null,
+  }
+}
+
+const uploadMedia = async (key: string, buffer: Buffer, contentType: string, fileName: string): Promise<string> => {
+  console.log(`[media] Starting upload for file: ${fileName}`)
+  await getStorageBucketStatus()
+
+  console.log('[media] File upload attempt', {
+    bucket: STORAGE_BUCKET,
+    key,
+    contentType,
+    size: buffer.length,
+  })
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).upload(key, buffer, {
     contentType,
     upsert: false,
   })
+  console.log('[media] Supabase upload response', { key, data, error })
 
   if (error) {
-    console.error('Media upload failed', { key, error })
-    throw new AppError(500, 'Failed to upload media file')
+    console.error('[media] File upload failed', { key, fileName, error })
+    if (isBucketNotFoundError(error)) {
+      throw new AppError(500, `Storage bucket '${STORAGE_BUCKET}' not found. Please create it in Supabase.`)
+    }
+    throw new AppError(500, `Supabase Storage error: ${getErrorMessage(error)}`)
   }
 
-  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(key)
-  if (!data?.publicUrl) {
+  const { data: mediaData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(key)
+  if (!mediaData?.publicUrl) {
+    console.error('[media] Failed to generate public URL', { key, fileName })
     throw new AppError(500, 'Failed to generate media URL')
   }
 
-  return data.publicUrl
+  return mediaData.publicUrl
 }
 
 const deleteFromStorage = async (publicUrl: string | null | undefined): Promise<void> => {
@@ -83,19 +146,19 @@ const deleteFromStorage = async (publicUrl: string | null | undefined): Promise<
 const validateMediaFile = (file: MediaUploadFile): MediaType => {
   if (IMAGE_MIME_TYPES.has(file.mimetype)) {
     if (file.size > MAX_IMAGE_SIZE) {
-      throw new AppError(400, 'Image file size must be 10MB or less')
+      throw new AppError(400, 'File too large. Maximum size is 10MB for images, 50MB for videos.')
     }
     return 'photo'
   }
 
   if (VIDEO_MIME_TYPES.has(file.mimetype)) {
     if (file.size > MAX_VIDEO_SIZE) {
-      throw new AppError(400, 'Video file size must be 50MB or less')
+      throw new AppError(400, 'File too large. Maximum size is 10MB for images, 50MB for videos.')
     }
     return 'video'
   }
 
-  throw new AppError(400, 'Unsupported media type')
+  throw new AppError(400, `Invalid file type. Allowed: ${ALLOWED_FILE_EXTENSIONS}`)
 }
 
 const ensureDestinationExists = async (destinationId: string): Promise<void> => {
@@ -227,6 +290,14 @@ export const createMedia = async (uploaderId: string, file: MediaUploadFile, inp
     throw new AppError(400, 'Media file is required')
   }
 
+  console.log('[media] Received upload payload', {
+    uploaderId,
+    originalname: file.originalname,
+    mimetype: file.mimetype,
+    size: file.size,
+    hasBuffer: Buffer.isBuffer(file.buffer),
+  })
+
   const type = validateMediaFile(file)
 
   let tripId = input.tripId ?? null
@@ -248,24 +319,45 @@ export const createMedia = async (uploaderId: string, file: MediaUploadFile, inp
   }
 
   const key = getUploadKey(type, file.originalname)
-  const url = await uploadToStorage(key, file.buffer, file.mimetype)
+  const url = await uploadMedia(key, file.buffer, file.mimetype, file.originalname)
 
   let thumbnailUrl: string | null = null
   if (type === 'photo') {
-    const thumbnailBuffer = await sharp(file.buffer)
-      .rotate()
-      .resize(400, 400, {
-        fit: 'inside',
-        withoutEnlargement: true,
+    try {
+      console.log('[media] Thumbnail generation attempt', {
+        fileName: file.originalname,
+        sourceSize: file.size,
       })
-      .jpeg({ quality: 80 })
-      .toBuffer()
+      const thumbnailBuffer = await sharp(file.buffer)
+        .rotate()
+        .resize(400, 400, {
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .jpeg({ quality: 80 })
+        .toBuffer()
 
-    const thumbnailKey = `${THUMBNAIL_FOLDER}/${crypto.randomUUID()}.jpg`
-    thumbnailUrl = await uploadToStorage(thumbnailKey, thumbnailBuffer, 'image/jpeg')
+      const thumbnailKey = `${THUMBNAIL_FOLDER}/${crypto.randomUUID()}.jpg`
+      thumbnailUrl = await uploadMedia(thumbnailKey, thumbnailBuffer, 'image/jpeg', `${file.originalname}-thumbnail.jpg`)
+    } catch (error) {
+      console.error('[media] Thumbnail generation failed', {
+        fileName: file.originalname,
+        error,
+      })
+      await deleteFromStorage(url)
+      throw new AppError(500, `Failed to generate thumbnail: ${getErrorMessage(error)}`)
+    }
   }
 
   const taggedUsers = input.taggedUsers ?? []
+  console.log('[media] Database insert attempt', {
+    uploaderId,
+    tripId,
+    destinationId,
+    type,
+    isPublic: input.isPublic ?? true,
+    taggedUsersCount: taggedUsers.length,
+  })
   const { data, error } = await supabase
     .from('media')
     .insert({
@@ -288,11 +380,50 @@ export const createMedia = async (uploaderId: string, file: MediaUploadFile, inp
     .single()
 
   if (error || !data) {
-    console.error('Media insert failed', error)
-    throw new AppError(500, 'Failed to create media record')
+    console.error('[media] Database insert failed', { error, uploaderId, fileName: file.originalname })
+    await deleteFromStorage(url)
+    await deleteFromStorage(thumbnailUrl)
+    throw new AppError(500, `Failed to save media metadata to database: ${getErrorMessage(error ?? 'Unknown database error')}`)
   }
 
   return mapRowToMediaResponse(data as MediaRow)
+}
+
+export const getStorageDebugStatus = async () => {
+  const env = {
+    SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
+    SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+    SUPABASE_ANON_KEY: Boolean(process.env.SUPABASE_ANON_KEY),
+  }
+
+  try {
+    const bucket = await getStorageBucketStatus()
+    return {
+      bucket: {
+        name: STORAGE_BUCKET,
+        exists: bucket.exists,
+        public: bucket.isPublic,
+        fileSizeLimit: bucket.fileSizeLimit,
+        allowedMimeTypes: bucket.allowedMimeTypes,
+      },
+      env,
+    }
+  } catch (error) {
+    if (error instanceof AppError && error.message.includes(`Storage bucket '${STORAGE_BUCKET}' not found`)) {
+      return {
+        bucket: {
+          name: STORAGE_BUCKET,
+          exists: false,
+          public: null,
+          fileSizeLimit: null,
+          allowedMimeTypes: null,
+        },
+        env,
+      }
+    }
+
+    throw error
+  }
 }
 
 export const getMediaById = async (mediaId: string, viewerId?: string | null): Promise<MediaResponse> => {
@@ -312,14 +443,46 @@ export const getMediaById = async (mediaId: string, viewerId?: string | null): P
   }
 
   const row = data as MediaRow
-  if (!row.is_public && !viewerId) {
-    throw new AppError(403, 'Media is private')
-  }
+  console.log('[media] getMediaById visibility check', {
+    mediaId,
+    viewerId: viewerId ?? null,
+    isPublic: row.is_public,
+    uploaderId: row.uploader_id,
+  })
 
-  if (!row.is_public && viewerId) {
-    const viewerAllowed = await isAcceptedFriend(viewerId, row.uploader_id)
-    if (!viewerAllowed) {
+  if (row.is_public === true) {
+    console.log('[media] getMediaById access granted', {
+      mediaId,
+      reason: 'media is public',
+    })
+  } else {
+    if (!viewerId) {
+      console.log('[media] getMediaById access denied', {
+        mediaId,
+        reason: 'private media with no viewer',
+      })
       throw new AppError(403, 'Media is private')
+    }
+
+    if (viewerId === row.uploader_id) {
+      console.log('[media] getMediaById access granted', {
+        mediaId,
+        reason: 'viewer is uploader',
+      })
+    } else {
+      const viewerAllowed = await isAcceptedFriend(viewerId, row.uploader_id)
+      if (!viewerAllowed) {
+        console.log('[media] getMediaById access denied', {
+          mediaId,
+          reason: 'private media and viewer is not allowed',
+        })
+        throw new AppError(403, 'Media is private')
+      }
+
+      console.log('[media] getMediaById access granted', {
+        mediaId,
+        reason: 'viewer follows uploader',
+      })
     }
   }
 

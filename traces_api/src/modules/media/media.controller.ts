@@ -1,7 +1,9 @@
 
 import { Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
+import multer from 'multer'
 import { AuthRequest } from '../../shared/middleware/auth.middleware'
+import { AppError } from '../../shared/middleware/error.middleware'
 import * as service from './media.service'
 import type { MediaUploadFile } from './media.service'
 import {
@@ -93,6 +95,15 @@ export const create = async (req: MediaUploadRequest, res: Response, next: NextF
       throw new Error('Unauthorized')
     }
 
+    if (!file) {
+      console.error('[media] No file received by multer', {
+        uploaderId,
+        bodyKeys: Object.keys(req.body ?? {}),
+        contentType: req.get('content-type'),
+      })
+      throw new AppError(400, 'Media file is required')
+    }
+
     const input = {
       caption: req.body.caption?.trim() ?? undefined,
       latitude: parseNumber(req.body.latitude),
@@ -106,6 +117,33 @@ export const create = async (req: MediaUploadRequest, res: Response, next: NextF
 
     const media = await service.createMedia(uploaderId, file as MediaUploadFile, input)
     res.status(201).json(media)
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const handleUploadMiddlewareError = (error: unknown, _req: AuthRequest, _res: Response, next: NextFunction) => {
+  if (error instanceof multer.MulterError) {
+    console.error('[media] Multer upload error', error)
+
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return next(new AppError(400, 'File too large. Maximum size is 10MB for images, 50MB for videos.'))
+    }
+
+    return next(new AppError(400, `Failed to upload media file: ${error.message}`))
+  }
+
+  if (error) {
+    console.error('[media] Unexpected upload middleware error', error)
+  }
+
+  return next(error)
+}
+
+export const debugStorageStatus = async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const status = await service.getStorageDebugStatus()
+    res.json(status)
   } catch (error) {
     next(error)
   }
