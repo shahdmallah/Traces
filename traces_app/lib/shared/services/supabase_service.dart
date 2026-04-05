@@ -6,8 +6,9 @@ class SupabaseService {
   static SupabaseClient get client => Supabase.instance.client;
   static GoTrueClient get auth => client.auth;
 
-  static String? get currentUserId => auth.currentUser?.id;
-  static bool get isLoggedIn => auth.currentUser != null;
+  /// Not tied to Supabase session — UI flows do not use auth state.
+  static String? get currentUserId => null;
+  static bool get isLoggedIn => false;
 
   // Upload a file to Supabase Storage
   static Future<String> uploadFile({
