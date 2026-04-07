@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 
-import { supabase, supabaseAnon } from '../../config/supabase'
+import { supabase, supabaseAdmin } from '../../lib/supabase'
 import { AppError } from '../../shared/middleware/error.middleware'
 import { AuthUserResponse, LoginInput, LoginResponse, SignUpInput } from './auth.types'
 
@@ -31,7 +31,7 @@ const findAuthUserIdByEmail = async (email: string): Promise<string | null> => {
   const maxPages = 100
 
   for (let i = 0; i < maxPages; i++) {
-    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage })
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage })
     if (error) {
       console.error('listUsers failed while resolving auth user by email', error)
       return null
@@ -50,7 +50,7 @@ export const signUp = async (input: SignUpInput): Promise<AuthUserResponse> => {
   const passwordHash = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS)
 
   const createAuthUser = () =>
-    supabase.auth.admin.createUser({
+    supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: false,
@@ -75,7 +75,7 @@ export const signUp = async (input: SignUpInput): Promise<AuthUserResponse> => {
       throw new AppError(409, 'Email is already registered')
     }
 
-    const { error: deleteOrphanError } = await supabase.auth.admin.deleteUser(orphanAuthId)
+    const { error: deleteOrphanError } = await supabaseAdmin.auth.admin.deleteUser(orphanAuthId)
     if (deleteOrphanError) {
       console.error('Failed to delete orphaned auth user before signup retry', {
         email,
@@ -119,7 +119,7 @@ export const signUp = async (input: SignUpInput): Promise<AuthUserResponse> => {
 
   if (profileInsertError) {
     try {
-      const { error: rollbackError } = await supabase.auth.admin.deleteUser(authUserId)
+      const { error: rollbackError } = await supabaseAdmin.auth.admin.deleteUser(authUserId)
       if (rollbackError) {
         console.error('Failed to rollback auth user after profile insert error', {
           authUserId,
@@ -151,7 +151,7 @@ export const signUp = async (input: SignUpInput): Promise<AuthUserResponse> => {
     if (organizerInsertError) {
       console.error('Failed to create organizer profile', organizerInsertError)
       try {
-        const { error: rollbackError } = await supabase.auth.admin.deleteUser(authUserId)
+        const { error: rollbackError } = await supabaseAdmin.auth.admin.deleteUser(authUserId)
         if (rollbackError) {
           console.error('Failed to rollback auth user after organizer profile insert error', {
             authUserId,
@@ -222,12 +222,7 @@ export const login = async (input: LoginInput): Promise<LoginResponse> => {
     }
   } else {
     // Legacy users: row exists but password was only in Supabase Auth (no bcrypt in DB yet)
-    if (!supabaseAnon) {
-      console.error('SUPABASE_ANON_KEY missing — cannot verify legacy password login')
-      throw new AppError(500, 'Server configuration error')
-    }
-
-    const { data: authData, error: authError } = await supabaseAnon.auth.signInWithPassword({
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password: input.password,
     })

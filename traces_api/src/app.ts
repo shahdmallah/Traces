@@ -6,20 +6,15 @@ import dotenv from 'dotenv'
 import { rateLimit } from 'express-rate-limit'
 
 import { authRouter } from './modules/auth/auth.router'
-import { usersRouter } from './modules/users/users.router'
-import { tripsRouter } from './modules/trips/trips.router'
-import { bookingsRouter } from './modules/bookings/bookings.router'
-import { destinationsRouter } from './modules/destinations/destinations.router'
+import { profilesRouter } from './modules/profiles/profiles.router'
+import { trailsRouter } from './modules/trails/trails.router'
+import { activitiesRouter } from './modules/activities/activities.router'
 import { mediaRouter } from './modules/media/media.router'
 import { reviewsRouter } from './modules/reviews/reviews.router'
-import { messagingRouter } from './modules/messaging/messaging.router'
-import { financialRouter } from './modules/financial/financial.router'
 import { socialRouter } from './modules/social/social.router'
-import { gamificationRouter } from './modules/gamification/gamification.router'
-import { adminRouter } from './modules/admin/admin.router'
-import { notificationsRouter } from './modules/notifications/notifications.router'
+import { listsRouter } from './modules/lists/lists.router'
 import { errorHandler } from './shared/middleware/error.middleware'
-import { supabase } from './config/supabase'
+import { supabase } from './lib/supabase'
 
 dotenv.config()
 
@@ -37,18 +32,13 @@ app.use('/api/', limiter)
 
 // Routes are registered only after body-parsing middleware.
 app.use('/api/auth',          authRouter)
-app.use('/api/users',         usersRouter)
-app.use('/api/trips',         tripsRouter)
-app.use('/api/bookings',      bookingsRouter)
-app.use('/api/destinations',  destinationsRouter)
+app.use('/api/profiles',      profilesRouter)
+app.use('/api/trails',        trailsRouter)
+app.use('/api/activities',    activitiesRouter)
 app.use('/api/media',         mediaRouter)
 app.use('/api/reviews',       reviewsRouter)
-app.use('/api/messaging',     messagingRouter)
-app.use('/api/financial',     financialRouter)
 app.use('/api/social',        socialRouter)
-app.use('/api/gamification',  gamificationRouter)
-app.use('/api/admin',         adminRouter)
-app.use('/api/notifications', notificationsRouter)
+app.use('/api/lists',         listsRouter)
 
 app.get('/health', async (_req, res) => {
   try {
